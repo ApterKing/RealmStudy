@@ -6,6 +6,10 @@ import Foundation
 import Realm
 import RealmSwift
 
+//class Chapter: Object {
+//    @objc dynamic var page: Int = 0
+//}
+
 class Book: Object {
     @objc dynamic var id = 0
     @objc dynamic var name: String?
@@ -52,10 +56,11 @@ Realm.Configuration.defaultConfiguration = configuration
 
 /// 初始化一个Realm实例，将采用默认配置
 var realm = try! Realm()
+//print("Basics   Realm  Schema:  \(realm.schema)")
 
 /// add 添加/更新一个对象
 let student = Student()
-student.idCard = "20191120"
+student.idCard = "20191120" 
 try? realm.write {
     // 当update=true时，必须要求Object的subclass实现override static func primaryKey() -> String
     realm.add(student, update: true)

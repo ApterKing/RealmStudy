@@ -22,12 +22,6 @@ class Animal: Object {
 
 let realm = try! Realm()
 
-/// 数据库任意变更监听
-/// 注意所有的观察都不能够在相同Realm实例的事务中操作！！！！
-let realmToken = realm.observe { (notification, realm) in
-    print("Observe   Realm: notification => \(notification),  realm => \(realm)")
-}
-
 /// 单个Object的监听
 /// 在监听之前如果你的Object未被Realm数据库managed，那么必须在事务中将对象写入数据库，否则会报unmanged错误
 let animal = Animal()
@@ -146,8 +140,42 @@ DispatchQueue.global().async {
     }
 }
 
+/// 数据库任意变更监听
+/// 注意所有的观察都不能够在相同Realm实例的事务中操作！！！！
+/// 但是我们这里解决了在UI线程中嵌套观察的一种方式
+var realmToken: NotificationToken?
+realm.write {
+
+    DispatchQueue.main.async {
+        // 处理线程同步的问题
+        print("Observe  线程同步的问题 while before")
+        var inWriteTransaction = realm.isInWriteTransaction
+        while inWriteTransaction {
+            inWriteTransaction = realm.isInWriteTransaction
+            print("Observe  线程同步的问题 while")
+        }
+        realmToken = realm.observe({ (notification, realm) in
+            print("Observe  线程同步的问题:  \(notification)   \(realm)")
+        })
+    }
+    print("Observe  线程同步的问题 add")
+    print("Observe  线程同步的问题 add finish")
+}
+DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+    let realm4 = try! Realm()
+    let animal4 = Animal()
+    animal4.id = 10
+    try? realm4.write {
+        realm4.add(animal4, update: true)
+    }
+}
+//let realmToken = realm.observe { (notification, realm) in
+//    print("Observe   Realm: notification => \(notification),  realm => \(realm)")
+//}
+
 
 /// 至此我们总结一下关于Realm实例及其对象observe的条件：
 /// 1、Realm/Object/Results/List都可被观察，并且当数据发生变化不论是在哪个进程或者线程都会被通知到
 /// 2、所有的观察不可以在Realm的实例事务中操作，不管被管理对象是否归属于当前Realm实例managed
 /// 3、相同线程下的不同Realm实例事务操作不能够嵌套，因为这个时候即使新建Realm实例，但其还是处于transition中，不同线程下的不同Realm实例是可以嵌套的
+
