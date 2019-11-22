@@ -7,15 +7,51 @@
 //
 
 import UIKit
+import Realm
+import RealmSwift
+
+class Book: Object {
+    @objc dynamic var id = 0
+    @objc dynamic var name: String?
+
+    override static func primaryKey() -> String {
+        return "id"
+    }
+}
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
 
+    var token: NotificationToken?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
+        try? XRealm.default.initialize()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            let realm = try! Realm()
+            let book = Book()
+            book.id = 0
+            book.name = "语文"
+            try? realm.write {
+                realm.add(book, update: true)
+            }
+
+            try? realm.write {
+                book.name = "数学"
+                XRealm.default.observe(book, { (change) in
+                    print("fuck  观察变更   \(change)")
+                }, { [weak self] (token, error) in
+                    self?.token = token
+                    print("fuck  观察  \(token)   \(error)")
+                })
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+            let book = Book()
+            XRealm.default.add(book, true, true)
+        }
         return true
     }
 

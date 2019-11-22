@@ -139,6 +139,11 @@ DispatchQueue.global().async {
         resultsCopy.setValue("test", forKey: "name")
     }
 }
+DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+    print("测试   、、、、")
+    print("测试   、、、、  \(results.first)   \(results.realm == realm)")
+    print("测试   、、、、  22")
+}
 
 /// 数据库任意变更监听
 /// 注意所有的观察都不能够在相同Realm实例的事务中操作！！！！
@@ -146,29 +151,45 @@ DispatchQueue.global().async {
 var realmToken: NotificationToken?
 realm.write {
 
+    print("fuck ---------  \(Thread.current)    \(Thread.current.threadDictionary)   \(Thread.current.threadPriority)")
     DispatchQueue.main.async {
         // 处理线程同步的问题
-        print("Observe  线程同步的问题 while before")
+        print("Observe  线程同步的问题 while before   isMain: \(Thread.isMainThread)")
         var inWriteTransaction = realm.isInWriteTransaction
         while inWriteTransaction {
             inWriteTransaction = realm.isInWriteTransaction
-            print("Observe  线程同步的问题 while")
+            print("Observe  线程同步的问题 while   isMain: \(Thread.isMainThread)")
         }
         realmToken = realm.observe({ (notification, realm) in
-            print("Observe  线程同步的问题:  \(notification)   \(realm)")
+            print("Observe  线程同步的问题:  \(notification)   \(realm)    \(Thread.isMainThread)")
         })
     }
     print("Observe  线程同步的问题 add")
     print("Observe  线程同步的问题 add finish")
 }
+
+var realm4Token: NotificationToken?
 DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+    print("fuck ---------    22   \(Thread.current)    \(Thread.current.threadDictionary)   \(Thread.current.threadPriority)")
     let realm4 = try! Realm()
     let animal4 = Animal()
     animal4.id = 10
     try? realm4.write {
         realm4.add(animal4, update: true)
     }
+
+//    print("Observe   Realm   Global:  \(realm4.isInWriteTransaction)")
+//    _ = realm4.observe({ (notification, realm) in
+//        print("Observe  线程同步的问题  4:  \(notification)   \(realm)    \(Thread.isMainThread)")
+//    })
+
 }
+
+// 验证在事务中观察
+try? realm.write {
+    // 请查看AppDelegate 中 XRealm 的处理
+}
+
 //let realmToken = realm.observe { (notification, realm) in
 //    print("Observe   Realm: notification => \(notification),  realm => \(realm)")
 //}
