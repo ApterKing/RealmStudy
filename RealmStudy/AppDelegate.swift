@@ -29,27 +29,50 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
         try? XRealm.default.initialize()
+        let book = Book()
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            let realm = try! Realm()
-            let book = Book()
+            let realm0 = try! Realm()
             book.id = 0
             book.name = "语文"
-            try? realm.write {
-                realm.add(book, update: true)
-            }
-
-            try? realm.write {
-                book.name = "数学"
+            try? realm0.write {
+                realm0.add(book, update: true)
                 XRealm.default.observe(book, { (change) in
                     print("fuck  观察变更   \(change)")
                 }, { [weak self] (token, error) in
                     self?.token = token
-                    print("fuck  观察  \(token)   \(error)")
                 })
             }
+
+
+            // 跨线程观察
+            let queue = DispatchQueue.global() //DispatchQueue.init(label: "test")
+            queue.async {
+                let book1 = Book()
+                let realm1 = try! Realm()
+                print("观察变更，跨线程，事务： \(book1)")
+                try? realm1.write {
+                    realm1.add(book1, update: true)
+
+//                    XRealm.default.observe(book1, { (change) in
+//                        print("观察变更，跨线程，事务：2 \(change)")
+//                    }, { (token, error) in
+//                        self.token = token
+//                    })
+                }
+                print("fuck ")
+//                XRealm.default.observe(book1, { (change) in
+//                    print("观察变更，跨线程，事务： \(change)")
+//                }, { (token, error) in
+//                    self.token = token
+//                })
+            }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+
+
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
             let book = Book()
+            book.name = "化学"
             XRealm.default.add(book, true, true)
         }
         return true

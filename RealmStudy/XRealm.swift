@@ -32,19 +32,17 @@ import RealmSwift
  *          }
  *      }
  */
-public class XRealm {
+public class XRealm: NSObject {
 
     static public let `default` = XRealm()
+    fileprivate override init() {}
 
     /// 由于Realm数据库时线程非安全，并且不支持跨线程贡献，那么我们必须为每个线程Realm实例时
     /// 如果增、删、改、查时在主线程，就不会新建realm，否则会在运行的线程新建一个realm，故不必担忧在增删改查时跨线程操作的问题
     public var realm: Realm? {
         get {
             if Thread.isMainThread {
-                if _realm == nil {
-                    _realm = try? Realm()
-                }
-                return _realm
+                return _realm ?? (try? Realm())
             } else {
                 return try? Realm()
             }
@@ -52,8 +50,6 @@ public class XRealm {
     }
     fileprivate var _realm: Realm?
     fileprivate var lock = NSRecursiveLock()
-
-    fileprivate init() {}
 
     /// warning: UID、inMemoryIdentifier、syncConfiguration 三者只能存在其一
     public func initialize(withUID: String? = nil,
@@ -73,15 +69,15 @@ public class XRealm {
         }
 
         let configuration = Realm.Configuration(fileURL: fileURL,
-                                         inMemoryIdentifier: inMemoryIdentifier ?? (fileURL == nil && syncConfiguration == nil ? "XRealm" : nil),
-                                         syncConfiguration: syncConfiguration,
-                                         encryptionKey: encryptionKey,
-                                         readOnly: readOnly,
-                                         schemaVersion: schemaVersion,
-                                         migrationBlock: migrationBlock,
-                                         deleteRealmIfMigrationNeeded: deleteRealmIfMigrationNeeded,
-                                         shouldCompactOnLaunch: shouldCompactOnLaunch,
-                                         objectTypes: objectTypes)
+                                                inMemoryIdentifier: inMemoryIdentifier ?? (fileURL == nil && syncConfiguration == nil ? "XRealm" : nil),
+                                                syncConfiguration: syncConfiguration,
+                                                encryptionKey: encryptionKey,
+                                                readOnly: readOnly,
+                                                schemaVersion: schemaVersion,
+                                                migrationBlock: migrationBlock,
+                                                deleteRealmIfMigrationNeeded: deleteRealmIfMigrationNeeded,
+                                                shouldCompactOnLaunch: shouldCompactOnLaunch,
+                                                objectTypes: objectTypes)
 
         try self.initialize(configuration: configuration)
     }
@@ -243,143 +239,114 @@ extension XRealm {
 /// MARK: 观察
 extension XRealm {
 
-    public typealias ObserveHandler = ((_ token: NotificationToken?, _ error: ObserveError?) -> Void)
+    public typealias ObserverHandler = ((_ token: NotificationToken?, _ error: ObserveError?) -> Void)
+    public typealias ObjectBlock = ((ObjectChange) -> Void)
 
     public enum ObserveError: Error {
         case unmanagedError   // 对象未被Realm实例managed，不可observe
-        case threadSafeError  // ThreadSafeReference只能够resolved至多一次
+        case threadSafeError  // 除了主线程外，其他线程允许观察，但不允许在事务中观察
     }
 
-    // 观察Object
-    public func observe<Element: Object>(_ object: Element, _ block: @escaping ((ObjectChange) -> Void), _ handler: @escaping ObserveHandler) {
+    // 事务中观察Object
+    public func observe<Element: Object>(_ object: Element, _ block: @escaping ((ObjectChange) -> Void), _ handler: @escaping ObserverHandler) {
         guard object.realm != nil else {
             handler(nil, .unmanagedError)
             return
         }
-        if !Thread.isMainThread {
-            let safeRef = ThreadSafeReference<Element>(to: object)
-            DispatchQueue.main.async { [weak self] in
-                guard let weakSelf = self, weakSelf.realm?.isInWriteTransaction == false else {
+        guard self.realm?.isInWriteTransaction == false else {
+            if Thread.isMainThread {
+                _runloopPerformBlock { [weak self] in
                     self?.observe(object, block, handler)
-                    return
                 }
-                guard let resolved = weakSelf.realm?.resolve(safeRef) else {
-                    handler(nil, .threadSafeError)
-                    return
-                }
-                let token = resolved.observe(block)
-                handler(token, nil)
+            } else {
+                handler(nil, .threadSafeError)
             }
-        } else {
-            DispatchQueue.main.async { [weak self] in
-                guard self?.realm?.isInWriteTransaction == false else {
-                    self?.observe(object, block, handler)
-                    return
-                }
-                let token = object.observe(block)
-                handler(token, nil)
-            }
+            return
+        }
+        _runloopPerformBlock {
+            let token = object.observe(block)
+            handler(token, nil)
         }
     }
 
     // 观察Results
-    public func observe<Element: Object>(_ results: Results<Element>, _ block: @escaping ((RealmCollectionChange<Results<Element>>) -> Void), _ handler: @escaping ObserveHandler) {
+    public func observe<Element: Object>(_ results: Results<Element>, _ block: @escaping ((RealmCollectionChange<Results<Element>>) -> Void), _ handler: @escaping ObserverHandler) {
         guard results.realm != nil else {
             handler(nil, .unmanagedError)
             return
         }
-        if !Thread.isMainThread {
-            let safeRef = ThreadSafeReference<Results<Element>>(to: results)
-            DispatchQueue.main.async { [weak self] in
-                guard let weakSelf = self, weakSelf.realm?.isInWriteTransaction == false else {
+        guard self.realm?.isInWriteTransaction == false else {
+            if Thread.isMainThread {
+                _runloopPerformBlock { [weak self] in
                     self?.observe(results, block, handler)
-                    return
                 }
-                guard let resolved = weakSelf.realm?.resolve(safeRef) else {
-                    handler(nil, .threadSafeError)
-                    return
-                }
-                let token = resolved.observe(block)
-                handler(token, nil)
+            } else {
+                handler(nil, .threadSafeError)
             }
-        } else {
-            DispatchQueue.main.async { [weak self] in
-                guard self?.realm?.isInWriteTransaction == false else {
-                    self?.observe(results, block, handler)
-                    return
-                }
-                let token = results.observe(block)
-                handler(token, nil)
-            }
+            return
+        }
+        _runloopPerformBlock {
+            let token = results.observe(block)
+            handler(token, nil)
         }
     }
 
     // 观察List
-    public func observe<Element: Object>(_ list: List<Element>, _ block: @escaping ((RealmCollectionChange<List<Element>>) -> Void), _ handler: @escaping ObserveHandler) {
+    public func observe<Element: Object>(_ list: List<Element>, _ block: @escaping ((RealmCollectionChange<List<Element>>) -> Void), _ handler: @escaping ObserverHandler) {
         guard list.realm != nil else {
             handler(nil, .unmanagedError)
             return
         }
-        if !Thread.isMainThread {
-            let safeRef = ThreadSafeReference<List<Element>>(to: list)
-            DispatchQueue.main.async { [weak self] in
-                guard let weakSelf = self, weakSelf.realm?.isInWriteTransaction == false else {
+        guard self.realm?.isInWriteTransaction == false else {
+            if Thread.isMainThread {
+                _runloopPerformBlock { [weak self] in
                     self?.observe(list, block, handler)
-                    return
                 }
-                guard let resolved = weakSelf.realm?.resolve(safeRef) else {
-                    handler(nil, .threadSafeError)
-                    return
-                }
-                let token = resolved.observe(block)
-                handler(token, nil)
+            } else {
+                handler(nil, .threadSafeError)
             }
-        } else {
-            DispatchQueue.main.async { [weak self] in
-                guard self?.realm?.isInWriteTransaction == false else {
-                    self?.observe(list, block, handler)
-                    return
-                }
-                let token = list.observe(block)
-                handler(token, nil)
-            }
+            return
+        }
+        _runloopPerformBlock {
+            let token = list.observe(block)
+            handler(token, nil)
         }
     }
 
     // 观察LinkingObjects
-    public func observe<Element: Object>(_ linkings: LinkingObjects<Element>, _ block: @escaping ((RealmCollectionChange<LinkingObjects<Element>>) -> Void), _ handler: @escaping ObserveHandler) {
+    public func observe<Element: Object>(_ linkings: LinkingObjects<Element>, _ block: @escaping ((RealmCollectionChange<LinkingObjects<Element>>) -> Void), _ handler: @escaping ObserverHandler) {
         guard linkings.realm != nil else {
             handler(nil, .unmanagedError)
             return
         }
+        guard self.realm?.isInWriteTransaction == false else {
+            if Thread.isMainThread {
+                _runloopPerformBlock { [weak self] in
+                    self?.observe(linkings, block, handler)
+                }
+            } else {
+                handler(nil, .threadSafeError)
+            }
+            return
+        }
+        _runloopPerformBlock {
+            let token = linkings.observe(block)
+            handler(token, nil)
+        }
+    }
+
+    private func _runloopPerformBlock(_ block: @escaping (() -> Void)) {
+        CFRunLoopPerformBlock(CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue) {
+            block()
+        }
         if !Thread.isMainThread {
-            let safeRef = ThreadSafeReference<LinkingObjects<Element>>(to: linkings)
-            DispatchQueue.main.async { [weak self] in
-                guard let weakSelf = self, weakSelf.realm?.isInWriteTransaction == false else {
-                    self?.observe(linkings, block, handler)
-                    return
-                }
-                guard let resolved = weakSelf.realm?.resolve(safeRef) else {
-                    handler(nil, .threadSafeError)
-                    return
-                }
-                let token = resolved.observe(block)
-                handler(token, nil)
-            }
-        } else {
-            DispatchQueue.main.async { [weak self] in
-                guard self?.realm?.isInWriteTransaction == false else {
-                    self?.observe(linkings, block, handler)
-                    return
-                }
-                let token = linkings.observe(block)
-                handler(token, nil)
-            }
+            CFRunLoopRun()
         }
     }
 
 }
 
+/// MARK: Realm文件路径
 extension XRealm {
 
     public static func sanboxURL(_ pathComponent: String, _ ofType: String = "realm") -> URL? {

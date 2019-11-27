@@ -13,6 +13,7 @@ class Book: Object {
     override static func primaryKey() -> String {
         return "id"
     }
+
 }
 
 class Student: Object {
@@ -98,6 +99,7 @@ try? realm.write {
     realm.add(book, update: true)
     student.books.append(book)
 }
+
 let listRef = ThreadSafeReference<List<Book>>(to: student.books)
 DispatchQueue.global().async {
     let realm0 = try! Realm()
@@ -108,6 +110,8 @@ DispatchQueue.global().async {
 
     // 请注意查看控制台被resolve之后的list的managed数据库实例
     print("Thread   List  ThreadSafeReference  验证当前list的管理Realm实例: \(list.realm == realm0)")
+
+
 }
 
 
