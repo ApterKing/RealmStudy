@@ -11,26 +11,46 @@ import Realm
 import RealmSwift
 
 /**
- *  Realm数据库封装
- *  - initialize 需要在启动时配置数据库，如果数据库根据某个特定情况不同，如：用户的id变化而初始化不同数据库，那么需要在情况发生变化时重新初始化一次
- *  - add/update/delete 新增修改数据：可通过autoWrite = true 在add/update/delete时将会在transaction中提交所做操作
- *  上述方法最大程度避免重复beginTransaction导致程序崩溃
- *
- *  - Usage:
- *    - 初始化：只有初始化之后才能使用Realm数据库，这里的UID可以为空，那么会自动创建一个UID相关的数据库URL
- *      XRealm.default.initialize(withUID: "xxx")
- *
- *    - 数据库操作：
- *      XRealm.default.add(object, true/false, true)
- *
- *    - 如果在同一地方多次调用add/update/delete/select建议：
- *      if let realm = XRealm.default.realm {
- *          XRealm.default.write {
- *              // do something
- *              realm.add(object, true/false)
- *              ...
- *          }
- *      }
+   Realm数据库封装
+   - initialize 需要在启动时配置数据库，如果数据库根据某个特定情况不同，如：用户的id变化而初始化不同数据库，那么需要在情况发生变化时重新初始化一次
+   - add/update/delete 新增修改数据：可通过autoWrite = true 在add/update/delete时将会在transaction中提交所做操作
+   上述方法最大程度避免重复beginTransaction导致程序崩溃
+
+   - Usage:
+     - 初始化：只有初始化之后才能使用Realm数据库，这里的UID可以为空，那么会自动创建一个UID相关的数据库URL
+       XRealm.default.initialize(withUID: "xxx")
+
+     - 数据库操作：
+       XRealm.default.add(object, true/false, true)
+
+     - 如果在同一地方多次调用add/update/delete/select建议：
+       if let realm = XRealm.default.realm {
+           XRealm.default.write {
+               // do something
+               realm.add(object, true/false)
+               ...
+           }
+       }
+
+     - 主线程下支持事务嵌套观察
+        var token: NotificationToken?
+        try? realm0.write {
+            realm0.add(book, update: true)
+            XRealm.default.observe(book, { (change) in
+                print("观察变更   \(change)")
+            }, { [weak self] (token, error) in
+                self?.token = token
+            })
+        }
+
+     - 非主线程下不支持事务嵌套观察，但你可以这样做
+        var token: NotificationToken?
+        XRealm.default.add(book, update: true)
+        XRealm.default.observe(book, { (change) in
+            print("观察变更   \(change)")
+        }, { [weak self] (token, error) in
+            self?.token = token
+        })
  */
 public class XRealm: NSObject {
 
@@ -85,10 +105,6 @@ public class XRealm: NSObject {
     // 使用configuration配置
     public func initialize(configuration: Realm.Configuration) throws {
         lock.lock()
-        guard _realm == nil else {
-            lock.unlock()
-            return
-        }
         // 保证数据库处理完毕后才打开，并且保证默认持有的一个Realm实例在主线程上
         Realm.asyncOpen(configuration: configuration, callbackQueue: DispatchQueue.main, callback: { [weak self] (realm, error) in
             Realm.Configuration.defaultConfiguration = configuration
